@@ -15,7 +15,7 @@ use crate::renderer::config_renderer::{
 use anyhow::{anyhow, Context};
 use ash::{
     prelude::VkResult,
-    vk::{self, ExtDebugUtilsFn, KhrSwapchainFn, KhrSynchronization2Fn},
+    vk::{self, EXT_DEBUG_UTILS_NAME, KHR_SWAPCHAIN_NAME, KHR_SYNCHRONIZATION2_NAME},
 };
 use bort_vk::{
     allocation_info_cpu_accessible, choose_composite_alpha, is_format_srgb, Buffer,
@@ -23,8 +23,9 @@ use bort_vk::{
     DebugCallbackProperties, DescriptorPool, DescriptorSet, DescriptorSetLayout,
     DescriptorSetLayoutBinding, DescriptorSetLayoutProperties, Device, DeviceOwned, Framebuffer,
     FramebufferProperties, Image, ImageDimensions, ImageProperties, ImageView, ImageViewAccess,
-    ImageViewProperties, Instance, MemoryAllocator, PhysicalDevice, Queue, RenderPass, ShaderError,
-    ShaderModule, ShaderStage, Subpass, Surface, Swapchain, SwapchainImage, SwapchainProperties,
+    ImageViewProperties, Instance, MemoryAllocator, PhysicalDevice, PhysicalDeviceFeatures, Queue,
+    RenderPass, ShaderError, ShaderModule, ShaderStage, Subpass, Surface, Swapchain,
+    SwapchainImage, SwapchainProperties,
 };
 use bort_vma::AllocationCreateInfo;
 #[allow(unused_imports)]
@@ -56,8 +57,8 @@ pub fn create_entry() -> anyhow::Result<Arc<ash::Entry>> {
 pub fn required_device_extensions() -> [CString; 2] {
     // VK_KHR_swapchain, VK_KHR_synchronization2
     [
-        KhrSwapchainFn::name().to_owned(),
-        KhrSynchronization2Fn::name().to_owned(),
+        KHR_SWAPCHAIN_NAME.to_owned(),
+        KHR_SYNCHRONIZATION2_NAME.to_owned(),
     ]
 }
 
@@ -133,8 +134,7 @@ pub fn create_instance(
         unsafe { CStr::from_bytes_with_nul_unchecked(b"VK_LAYER_KHRONOS_validation\0") };
 
     if ENABLE_VULKAN_VALIDATION {
-        let layer_properties = entry
-            .enumerate_instance_layer_properties()
+        let layer_properties = unsafe { entry.enumerate_instance_layer_properties() }
             .context("enumerating instance layer properties")?;
 
         for layer_prop in layer_properties {
@@ -151,7 +151,7 @@ pub fn create_instance(
     let mut extension_names = Vec::<CString>::new();
     if ENABLE_VULKAN_VALIDATION {
         debug!("enabling instance extension: VK_EXT_debug_utils");
-        extension_names.push(ExtDebugUtilsFn::name().to_owned());
+        extension_names.push(EXT_DEBUG_UTILS_NAME.to_owned());
     };
 
     let instance = Arc::new(
@@ -340,7 +340,7 @@ fn check_physical_device_queue_support(
     };
 
     // check requried device features support
-    let supported_features_1_0 = instance.physical_device_features_1_0(physical_device.handle());
+    let supported_features_1_0 = instance.physical_device_features_1_0(&physical_device);
     if !supports_required_features_1_0(supported_features_1_0) {
         trace!(
             "physical device {} doesn't support required features.\n
@@ -402,43 +402,42 @@ pub fn create_device_and_queue(
 
     let queue_infos = if separate_queue_families {
         let render_queue_priorities = &single_queue_priority;
-        let render_queue_info = vk::DeviceQueueCreateInfo::builder()
+        let render_queue_info = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(render_queue_family_index)
             .queue_priorities(render_queue_priorities);
 
         let transfer_queue_priorities = &single_queue_priority;
-        let transfer_queue_info = vk::DeviceQueueCreateInfo::builder()
+        let transfer_queue_info = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(transfer_queue_family_index)
             .queue_priorities(transfer_queue_priorities);
 
-        vec![render_queue_info.build(), transfer_queue_info.build()]
+        vec![render_queue_info, transfer_queue_info]
     } else {
-        let render_and_transfer_queue_info = vk::DeviceQueueCreateInfo::builder()
+        let render_and_transfer_queue_info = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(render_queue_family_index)
             .queue_priorities(&single_queue_priority);
 
-        vec![render_and_transfer_queue_info.build()]
+        vec![render_and_transfer_queue_info]
     };
 
-    let features_1_0 = required_features_1_0();
-    let features_1_1 = vk::PhysicalDeviceVulkan11Features::default();
-    let features_1_2 = vk::PhysicalDeviceVulkan12Features::default();
-    let features_1_3 = vk::PhysicalDeviceVulkan13Features::default();
+    let physical_device_features = PhysicalDeviceFeatures {
+        features_1_0: required_features_1_0(),
+        ..Default::default()
+    };
 
     let extension_names = Vec::from(required_device_extensions());
 
     // enable synchronization2 feature for vulkan api <= 1.2 (1.3 )
-    let synchronization_feature =
-        vk::PhysicalDeviceSynchronization2Features::builder().synchronization2(true);
+    let synchronization_feature = vk::PhysicalDeviceSynchronization2Features {
+        synchronization2: true.into(),
+        ..Default::default()
+    };
 
     let device_raw = unsafe {
         Device::new_with_p_next_chain(
             physical_device,
             queue_infos.as_slice(),
-            features_1_0,
-            features_1_1,
-            features_1_2,
-            features_1_3,
+            physical_device_features,
             extension_names,
             vec![],
             debug_callback,
@@ -639,54 +638,57 @@ fn attachment_descriptions(
         [vk::AttachmentDescription::default(); render_pass_indices::NUM_ATTACHMENTS];
 
     attachment_descriptions[render_pass_indices::ATTACHMENT_SWAPCHAIN] =
-        vk::AttachmentDescription::builder()
-            .format(swapchain_properties.surface_format.format)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-            .build();
+        vk::AttachmentDescription {
+            format: swapchain_properties.surface_format.format,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::STORE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+            ..Default::default()
+        };
 
-    attachment_descriptions[render_pass_indices::ATTACHMENT_NORMAL] =
-        vk::AttachmentDescription::builder()
-            .format(FORMAT_NORMAL_BUFFER)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::DONT_CARE)
-            .initial_layout(vk::ImageLayout::UNDEFINED) // what it will be in at the beginning of the render pass
-            .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // what it will transition to at the end of the render pass
-            .build();
+    attachment_descriptions[render_pass_indices::ATTACHMENT_NORMAL] = vk::AttachmentDescription {
+        format: FORMAT_NORMAL_BUFFER,
+        samples: vk::SampleCountFlags::TYPE_1,
+        load_op: vk::AttachmentLoadOp::CLEAR,
+        store_op: vk::AttachmentStoreOp::DONT_CARE,
+        initial_layout: vk::ImageLayout::UNDEFINED, // what it will be in at the beginning of the render pass
+        final_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL, // what it will transition to at the end of the render pass
+        ..Default::default()
+    };
 
-    attachment_descriptions[render_pass_indices::ATTACHMENT_ALBEDO] =
-        vk::AttachmentDescription::builder()
-            .format(FORMAT_ALBEDO_BUFFER)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::DONT_CARE)
-            .initial_layout(vk::ImageLayout::UNDEFINED) // what it will be in at the beginning of the render pass
-            .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // what it will transition to at the end of the render pass
-            .build();
+    attachment_descriptions[render_pass_indices::ATTACHMENT_ALBEDO] = vk::AttachmentDescription {
+        format: FORMAT_ALBEDO_BUFFER,
+        samples: vk::SampleCountFlags::TYPE_1,
+        load_op: vk::AttachmentLoadOp::CLEAR,
+        store_op: vk::AttachmentStoreOp::DONT_CARE,
+        initial_layout: vk::ImageLayout::UNDEFINED, // what it will be in at the beginning of the render pass
+        final_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL, // what it will transition to at the end of the render pass
+        ..Default::default()
+    };
 
     attachment_descriptions[render_pass_indices::ATTACHMENT_PRIMITIVE_ID] =
-        vk::AttachmentDescription::builder()
-            .format(FORMAT_PRIMITIVE_ID_BUFFER)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .initial_layout(vk::ImageLayout::UNDEFINED) // what it will be in at the beginning of the render pass
-            .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // what it will transition to at the end of the render pass
-            .build();
+        vk::AttachmentDescription {
+            format: FORMAT_PRIMITIVE_ID_BUFFER,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::STORE,
+            initial_layout: vk::ImageLayout::UNDEFINED, // what it will be in at the beginning of the render pass
+            final_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL, // what it will transition to at the end of the render pass
+            ..Default::default()
+        };
 
     attachment_descriptions[render_pass_indices::ATTACHMENT_DEPTH_BUFFER] =
-        vk::AttachmentDescription::builder()
-            .format(depth_buffer_format)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::DONT_CARE)
-            .initial_layout(vk::ImageLayout::UNDEFINED) // what it will be in at the beginning of the render pass
-            .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL) // what it will transition to at the end of the render pass
-            .build();
+        vk::AttachmentDescription {
+            format: depth_buffer_format,
+            samples: vk::SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED, // what it will be in at the beginning of the render pass
+            final_layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL, // what it will transition to at the end of the render pass
+            ..Default::default()
+        };
 
     attachment_descriptions
 }
@@ -698,24 +700,28 @@ fn subpasses() -> [Subpass; render_pass_indices::NUM_SUBPASSES] {
     // g-buffer subpass
 
     let g_buffer_color_attachments = [
-        vk::AttachmentReference::builder()
-            .attachment(render_pass_indices::ATTACHMENT_NORMAL as u32)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .build(),
-        vk::AttachmentReference::builder()
-            .attachment(render_pass_indices::ATTACHMENT_ALBEDO as u32)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .build(),
-        vk::AttachmentReference::builder()
-            .attachment(render_pass_indices::ATTACHMENT_PRIMITIVE_ID as u32)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .build(),
+        vk::AttachmentReference {
+            attachment: render_pass_indices::ATTACHMENT_NORMAL as u32,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            ..Default::default()
+        },
+        vk::AttachmentReference {
+            attachment: render_pass_indices::ATTACHMENT_ALBEDO as u32,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            ..Default::default()
+        },
+        vk::AttachmentReference {
+            attachment: render_pass_indices::ATTACHMENT_PRIMITIVE_ID as u32,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            ..Default::default()
+        },
     ];
 
-    let g_buffer_depth_attachment = vk::AttachmentReference::builder()
-        .attachment(render_pass_indices::ATTACHMENT_DEPTH_BUFFER as u32)
-        .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-        .build();
+    let g_buffer_depth_attachment = vk::AttachmentReference {
+        attachment: render_pass_indices::ATTACHMENT_DEPTH_BUFFER as u32,
+        layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        ..Default::default()
+    };
 
     subpasses[render_pass_indices::SUBPASS_GBUFFER] = Subpass::new(
         &g_buffer_color_attachments,
@@ -725,24 +731,28 @@ fn subpasses() -> [Subpass; render_pass_indices::NUM_SUBPASSES] {
 
     // deferred subpass
 
-    let deferred_color_attachments = [vk::AttachmentReference::builder()
-        .attachment(render_pass_indices::ATTACHMENT_SWAPCHAIN as u32)
-        .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        .build()];
+    let deferred_color_attachments = [vk::AttachmentReference {
+        attachment: render_pass_indices::ATTACHMENT_SWAPCHAIN as u32,
+        layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        ..Default::default()
+    }];
 
     let deferred_input_attachments = [
-        vk::AttachmentReference::builder()
-            .attachment(render_pass_indices::ATTACHMENT_NORMAL as u32)
-            .layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build(),
-        vk::AttachmentReference::builder()
-            .attachment(render_pass_indices::ATTACHMENT_ALBEDO as u32)
-            .layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build(),
-        vk::AttachmentReference::builder()
-            .attachment(render_pass_indices::ATTACHMENT_PRIMITIVE_ID as u32)
-            .layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build(),
+        vk::AttachmentReference {
+            attachment: render_pass_indices::ATTACHMENT_NORMAL as u32,
+            layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            ..Default::default()
+        },
+        vk::AttachmentReference {
+            attachment: render_pass_indices::ATTACHMENT_ALBEDO as u32,
+            layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            ..Default::default()
+        },
+        vk::AttachmentReference {
+            attachment: render_pass_indices::ATTACHMENT_PRIMITIVE_ID as u32,
+            layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            ..Default::default()
+        },
     ];
 
     subpasses[render_pass_indices::SUBPASS_DEFERRED] = Subpass::new(
@@ -759,26 +769,28 @@ fn subpass_dependencies() -> [vk::SubpassDependency; 2] {
 
     // more efficient swapchain synchronization than the implicit transition.
     // see first section of https://community.arm.com/arm-community-blogs/b/graphics-gaming-and-vr-blog/posts/vulkan-best-practices-frequently-asked-questions-part-1
-    subpass_dependencies[0] = vk::SubpassDependency::builder()
-        .src_subpass(vk::SUBPASS_EXTERNAL)
-        .dst_subpass(render_pass_indices::SUBPASS_DEFERRED as u32)
-        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .src_access_mask(vk::AccessFlags::empty())
-        .dst_access_mask(
-            vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::COLOR_ATTACHMENT_READ,
-        )
-        .build();
+    subpass_dependencies[0] = vk::SubpassDependency {
+        src_subpass: vk::SUBPASS_EXTERNAL,
+        dst_subpass: render_pass_indices::SUBPASS_DEFERRED as u32,
+        src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        dst_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        src_access_mask: vk::AccessFlags::empty(),
+        dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+            | vk::AccessFlags::COLOR_ATTACHMENT_READ,
+
+        ..Default::default()
+    };
 
     // input attachments
-    subpass_dependencies[1] = vk::SubpassDependency::builder()
-        .src_subpass(render_pass_indices::SUBPASS_GBUFFER as u32)
-        .dst_subpass(render_pass_indices::SUBPASS_DEFERRED as u32)
-        .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .dst_stage_mask(vk::PipelineStageFlags::FRAGMENT_SHADER)
-        .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
-        .dst_access_mask(vk::AccessFlags::SHADER_READ)
-        .build();
+    subpass_dependencies[1] = vk::SubpassDependency {
+        src_subpass: render_pass_indices::SUBPASS_GBUFFER as u32,
+        dst_subpass: render_pass_indices::SUBPASS_DEFERRED as u32,
+        src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+        dst_stage_mask: vk::PipelineStageFlags::FRAGMENT_SHADER,
+        src_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        dst_access_mask: vk::AccessFlags::SHADER_READ,
+        ..Default::default()
+    };
 
     subpass_dependencies
 }
@@ -1067,7 +1079,7 @@ pub fn write_camera_descriptor_set(
     };
     let camera_buffer_infos = [camera_buffer_info];
 
-    let descriptor_write = vk::WriteDescriptorSet::builder()
+    let descriptor_write = vk::WriteDescriptorSet::default()
         .dst_set(desc_set_camera.handle())
         .dst_binding(binding)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -1078,11 +1090,11 @@ pub fn write_camera_descriptor_set(
         .update_descriptor_sets([descriptor_write], []);
 }
 
-pub fn create_shader_stages_from_bytes(
+pub fn create_shader_stages_from_bytes<'a>(
     device: &Arc<Device>,
     mut vertex_spv_file: std::io::Cursor<&[u8]>,
     mut frag_spv_file: std::io::Cursor<&[u8]>,
-) -> Result<(ShaderStage, ShaderStage), ShaderError> {
+) -> Result<(ShaderStage<'a>, ShaderStage<'a>), ShaderError> {
     let vert_shader = Arc::new(ShaderModule::new_from_spirv(
         device.clone(),
         &mut vertex_spv_file,
@@ -1095,11 +1107,11 @@ pub fn create_shader_stages_from_bytes(
     Ok(create_shader_stages_from_modules(vert_shader, frag_shader))
 }
 
-pub fn create_shader_stages_from_path(
+pub fn create_shader_stages_from_path<'a>(
     device: &Arc<Device>,
     vert_shader_file_path: &str,
     frag_shader_file_path: &str,
-) -> Result<(ShaderStage, ShaderStage), ShaderError> {
+) -> Result<(ShaderStage<'a>, ShaderStage<'a>), ShaderError> {
     let vert_shader = Arc::new(ShaderModule::new_from_file(
         device.clone(),
         vert_shader_file_path,
@@ -1112,10 +1124,10 @@ pub fn create_shader_stages_from_path(
     Ok(create_shader_stages_from_modules(vert_shader, frag_shader))
 }
 
-pub fn create_shader_stages_from_modules(
+pub fn create_shader_stages_from_modules<'a>(
     vert_shader: Arc<ShaderModule>,
     frag_shader: Arc<ShaderModule>,
-) -> (ShaderStage, ShaderStage) {
+) -> (ShaderStage<'a>, ShaderStage<'a>) {
     let vert_stage = ShaderStage::new(
         vk::ShaderStageFlags::VERTEX,
         vert_shader,

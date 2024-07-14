@@ -386,14 +386,14 @@ impl RenderManager {
 
         let signal_semaphores = [self.next_frame_wait_semaphore.handle()];
 
-        let submit_info = vk::SubmitInfo::builder()
+        let submit_info = vk::SubmitInfo::default()
             .command_buffers(&submit_command_buffers)
             .wait_semaphores(&wait_semaphores)
             .wait_dst_stage_mask(&wait_stages)
             .signal_semaphores(&signal_semaphores);
 
         self.render_queue
-            .submit([submit_info], Some(&self.previous_render_fence))
+            .submit(&[submit_info], Some(&self.previous_render_fence))
             .context("submitting render commands")?;
 
         self.framebuffer_index_currently_rendering = swapchain_index;
@@ -402,7 +402,7 @@ impl RenderManager {
 
         let swapchain_present_indices = [swapchain_index as u32];
         let swapchain_handles = [self.swapchain.handle()];
-        let present_info = vk::PresentInfoKHR::builder()
+        let present_info = vk::PresentInfoKHR::default()
             .wait_semaphores(&signal_semaphores)
             .image_indices(&swapchain_present_indices)
             .swapchains(&swapchain_handles);
@@ -583,13 +583,15 @@ impl RenderManager {
         let render_area = self.framebuffers[framebuffer_index].whole_rect();
         let command_buffer = &self.render_command_buffers[framebuffer_index];
 
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        let begin_info = vk::CommandBufferBeginInfo {
+            flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+            ..Default::default()
+        };
         command_buffer
             .begin(&begin_info)
             .context("beinning render command buffer recording")?;
 
-        let render_pass_begin = vk::RenderPassBeginInfo::builder()
+        let render_pass_begin = vk::RenderPassBeginInfo::default()
             .render_pass(self.render_pass.handle())
             .framebuffer(self.framebuffers[framebuffer_index].handle())
             .render_area(render_area)

@@ -27,11 +27,13 @@ glam = { version = "0.25", features = ["debug-glam-assert", "serde"] }
 winit = "0.29"
 raw-window-handle = "0.6"
 # ash is a lightweight vulkan wrapper. note that with default features, the vulkan library will (attempt to) be loaded dynamically at runtime.
-ash = "0.37"
+ash = "0.38"
 # bort has a bunch of helper structs and functions wrapped around ash
-bort-vk = { version = "0.2.7", default-features = false, features = ["raw-window-handle-06", "bytemuck"] }
+#bort-vk = { version = "0.2.7", default-features = false, features = ["raw-window-handle-06", "bytemuck"] }
+bort-vk = { path = "../bort/bort-vk", default-features = false, features = ["raw-window-handle-06", "bytemuck"] }
 # AMD vulkan memory allocator bindings
-bort-vma = { version = "0.3", features = ["vulkan-1-2"] }
+#bort-vma = { version = "0.3", features = ["vulkan-1-2"] }
+bort-vma = { path = "../bort/bort-vma", features = ["vulkan-1-2"] }
 # bit-casting crate (for cpu<->gpu buffers)
 bytemuck = { version = "1.7", features = ["derive"] }
 # egui is a simple and fast ui library

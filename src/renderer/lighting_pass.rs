@@ -235,17 +235,17 @@ fn write_desc_set_gbuffer(
     };
     let primitive_id_buffer_infos = [primitive_id_buffer_info];
 
-    let descriptor_write_normal_buffer = vk::WriteDescriptorSet::builder()
+    let descriptor_write_normal_buffer = vk::WriteDescriptorSet::default()
         .dst_set(desc_set_gbuffer.handle())
         .dst_binding(descriptor::BINDING_NORMAL)
         .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
         .image_info(&normal_buffer_infos);
-    let descriptor_write_albedo_buffer = vk::WriteDescriptorSet::builder()
+    let descriptor_write_albedo_buffer = vk::WriteDescriptorSet::default()
         .dst_set(desc_set_gbuffer.handle())
         .dst_binding(descriptor::BINDING_ALBEDO)
         .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)
         .image_info(&albedo_buffer_infos);
-    let descriptor_write_primitive_id_buffer = vk::WriteDescriptorSet::builder()
+    let descriptor_write_primitive_id_buffer = vk::WriteDescriptorSet::default()
         .dst_set(desc_set_gbuffer.handle())
         .dst_binding(descriptor::BINDING_PRIMITIVE_ID)
         .descriptor_type(vk::DescriptorType::INPUT_ATTACHMENT)

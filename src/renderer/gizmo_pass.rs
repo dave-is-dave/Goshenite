@@ -132,7 +132,7 @@ pub fn write_camera_descriptor_set(
     };
     let camera_buffer_infos = [camera_buffer_info];
 
-    let descriptor_write = vk::WriteDescriptorSet::builder()
+    let descriptor_write = vk::WriteDescriptorSet::default()
         .dst_set(desc_set_camera.handle())
         .dst_binding(binding)
         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -223,11 +223,10 @@ fn create_pipeline_layout(
     device: Arc<Device>,
     desc_set_layout_camera: Arc<DescriptorSetLayout>,
 ) -> anyhow::Result<Arc<PipelineLayout>> {
-    let push_constant_range = vk::PushConstantRange::builder()
+    let push_constant_range = vk::PushConstantRange::default()
         .stage_flags(vk::ShaderStageFlags::FRAGMENT)
         .offset(0)
-        .size(std::mem::size_of::<GizmosPushConstant>() as u32)
-        .build();
+        .size(std::mem::size_of::<GizmosPushConstant>() as u32);
 
     let pipeline_layout_props =
         PipelineLayoutProperties::new(vec![desc_set_layout_camera], vec![push_constant_range]);
