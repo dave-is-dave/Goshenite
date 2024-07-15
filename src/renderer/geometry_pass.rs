@@ -187,7 +187,7 @@ fn create_pipeline(
     pipeline_layout: Arc<PipelineLayout>,
     render_pass: &RenderPass,
 ) -> anyhow::Result<GraphicsPipeline> {
-    let (vert_stage, frag_stage) = create_shader_stages(pipeline_layout.device())?;
+    let (vert_stage, frag_stage) = create_shader_stages(pipeline_layout.device().clone())?;
 
     let dynamic_state =
         DynamicState::new_default(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR]);
@@ -242,7 +242,9 @@ fn create_pipeline(
 }
 
 #[cfg(feature = "include-spirv-bytes")]
-fn create_shader_stages(device: &Arc<Device>) -> anyhow::Result<(ShaderStage, ShaderStage)> {
+fn create_shader_stages<'a>(
+    device: Arc<Device>,
+) -> anyhow::Result<(ShaderStage<'a>, ShaderStage<'a>)> {
     use super::vulkan_init::create_shader_stages_from_bytes;
 
     let vertex_spv_file = std::io::Cursor::new(
@@ -257,7 +259,9 @@ fn create_shader_stages(device: &Arc<Device>) -> anyhow::Result<(ShaderStage, Sh
 }
 
 #[cfg(not(feature = "include-spirv-bytes"))]
-fn create_shader_stages(device: &Arc<Device>) -> anyhow::Result<(ShaderStage, ShaderStage)> {
+fn create_shader_stages<'a>(
+    device: Arc<Device>,
+) -> anyhow::Result<(ShaderStage<'a>, ShaderStage<'a>)> {
     use crate::renderer::vulkan_init::create_shader_stages_from_path;
 
     const VERT_SHADER_PATH: &str = "assets/shader_binaries/bounding_mesh.vert.spv";

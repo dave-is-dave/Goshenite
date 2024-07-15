@@ -7,7 +7,7 @@ use crate::engine::{
     },
 };
 use anyhow::Context;
-use ash::{extensions::khr::Synchronization2, prelude::VkResult, vk};
+use ash::{khr::synchronization2, prelude::VkResult, vk};
 use bort_vk::{
     allocation_info_from_flags, AllocationAccess, AllocatorAccess, Buffer, BufferProperties,
     CommandBuffer, CommandPool, CommandPoolProperties, DescriptorPool, DescriptorPoolProperties,
@@ -27,7 +27,7 @@ const CHECK_FENCE_TIMEOUT_NANOSECONDS: u64 = 100;
 /// Manages per-object resources for the geometry pass
 pub struct ObjectResourceManager {
     device: Arc<Device>,
-    synchronization_2_functions: Synchronization2,
+    synchronization_2_functions: synchronization2::Device,
 
     memory_allocator: Arc<MemoryAllocator>,
     command_pool_transfer_queue: Arc<CommandPool>,
@@ -51,7 +51,7 @@ impl ObjectResourceManager {
     ) -> anyhow::Result<Self> {
         let device = memory_allocator.device().clone();
         let synchronization_2_functions =
-            Synchronization2::new(&device.instance().inner(), &device.inner());
+            synchronization2::Device::new(&device.instance().inner(), &device.inner());
 
         let initial_descriptor_pool = create_descriptor_pool(device.clone())?;
         let command_pool_transfer_queue =
@@ -406,21 +406,23 @@ impl ObjectResourceManager {
                 dst_access_mask = vk::AccessFlags2::empty();
             }
 
-            vk::BufferMemoryBarrier2::builder()
-                .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
-                .dst_stage_mask(dst_stage_mask)
-                .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
-                .dst_access_mask(dst_access_mask)
-                .buffer(new_buffer.handle())
-                .size(upload_data_size)
-                .offset(0)
-                .src_queue_family_index(transfer_resources.transfer_queue_family_index)
-                .dst_queue_family_index(transfer_resources.render_queue_family_index)
+            vk::BufferMemoryBarrier2 {
+                src_stage_mask: vk::PipelineStageFlags2::TRANSFER,
+                dst_stage_mask: dst_stage_mask,
+                src_access_mask: vk::AccessFlags2::TRANSFER_WRITE,
+                dst_access_mask: dst_access_mask,
+                buffer: new_buffer.handle(),
+                size: upload_data_size,
+                offset: 0,
+                src_queue_family_index: transfer_resources.transfer_queue_family_index,
+                dst_queue_family_index: transfer_resources.render_queue_family_index,
+                ..Default::default()
+            }
         };
 
-        let after_transfer_barriers = [after_transfer_barrier.build()];
+        let after_transfer_barriers = [after_transfer_barrier];
         let after_transfer_dependency =
-            vk::DependencyInfo::builder().buffer_memory_barriers(&after_transfer_barriers);
+            vk::DependencyInfo::default().buffer_memory_barriers(&after_transfer_barriers);
 
         let copy_region = vk::BufferCopy {
             src_offset: 0,
@@ -445,21 +447,22 @@ impl ObjectResourceManager {
 
         if transfer_resources.queue_ownership_transfer_required() {
             // an identical queue aquire operation is required to complete the layout transition https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html#synchronization-queue-transfers-acquire
-            let before_render_barrier = vk::BufferMemoryBarrier2::builder()
-                .src_stage_mask(vk::PipelineStageFlags2::empty())
-                .dst_stage_mask(render_dst_stage)
-                .src_access_mask(vk::AccessFlags2::empty())
-                .dst_access_mask(render_dst_access_flags)
-                .buffer(new_buffer.handle())
-                .size(upload_data_size)
-                .offset(0)
-                .src_queue_family_index(transfer_resources.transfer_queue_family_index)
-                .dst_queue_family_index(transfer_resources.render_queue_family_index)
-                .build();
+            let before_render_barrier = vk::BufferMemoryBarrier2 {
+                src_stage_mask: vk::PipelineStageFlags2::empty(),
+                dst_stage_mask: render_dst_stage,
+                src_access_mask: vk::AccessFlags2::empty(),
+                dst_access_mask: render_dst_access_flags,
+                buffer: new_buffer.handle(),
+                size: upload_data_size,
+                offset: 0,
+                src_queue_family_index: transfer_resources.transfer_queue_family_index,
+                dst_queue_family_index: transfer_resources.render_queue_family_index,
+                ..Default::default()
+            };
 
             let before_render_barriers = [before_render_barrier];
             let before_render_dependency =
-                vk::DependencyInfo::builder().buffer_memory_barriers(&before_render_barriers);
+                vk::DependencyInfo::default().buffer_memory_barriers(&before_render_barriers);
 
             unsafe {
                 self.synchronization_2_functions.cmd_pipeline_barrier2(
@@ -513,7 +516,7 @@ fn write_desc_set_primitive_ops(
     };
     let buffer_infos = [primitive_ops_buffer_info];
 
-    let descriptor_write = vk::WriteDescriptorSet::builder()
+    let descriptor_write = vk::WriteDescriptorSet::default()
         .dst_set(descriptor_set.handle())
         .dst_binding(descriptor::BINDING_PRIMITIVE_OPS)
         .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -596,8 +599,10 @@ impl BufferUploadResources {
     }
 
     pub fn begin_command_buffers(&self) -> anyhow::Result<()> {
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        let begin_info = vk::CommandBufferBeginInfo {
+            flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+            ..Default::default()
+        };
 
         self.command_buffer_transfer
             .begin(&begin_info)
@@ -642,25 +647,25 @@ impl BufferUploadResources {
 
         let transfer_command_buffers = [self.command_buffer_transfer.handle()];
 
-        let transfer_submit_info = vk::SubmitInfo::builder()
+        let transfer_submit_info = vk::SubmitInfo::default()
             .command_buffers(&transfer_command_buffers)
             .signal_semaphores(&sync_semaphores);
 
         transfer_queue
-            .submit([transfer_submit_info], transfer_fence)
+            .submit(&[transfer_submit_info], transfer_fence)
             .context("submitting geometry buffer upload commands")?;
 
         if queue_ownership_transfer_required {
             let render_sync_command_buffers = [self.command_buffer_render_sync.handle()];
 
-            let render_sync_submit_info = vk::SubmitInfo::builder()
+            let render_sync_submit_info = vk::SubmitInfo::default()
                 .command_buffers(&render_sync_command_buffers)
                 .wait_semaphores(&sync_semaphores)
                 .wait_dst_stage_mask(&[vk::PipelineStageFlags::FRAGMENT_SHADER]);
 
             render_queue
                 .submit(
-                    [render_sync_submit_info],
+                    &[render_sync_submit_info],
                     Some(self.completion_fence.as_ref()),
                 )
                 .context("submitting object data upload render sync commands")?;

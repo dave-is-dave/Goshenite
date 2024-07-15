@@ -1091,7 +1091,7 @@ pub fn write_camera_descriptor_set(
 }
 
 pub fn create_shader_stages_from_bytes<'a>(
-    device: &Arc<Device>,
+    device: Arc<Device>,
     mut vertex_spv_file: std::io::Cursor<&[u8]>,
     mut frag_spv_file: std::io::Cursor<&[u8]>,
 ) -> Result<(ShaderStage<'a>, ShaderStage<'a>), ShaderError> {
@@ -1099,16 +1099,13 @@ pub fn create_shader_stages_from_bytes<'a>(
         device.clone(),
         &mut vertex_spv_file,
     )?);
-    let frag_shader = Arc::new(ShaderModule::new_from_spirv(
-        device.clone(),
-        &mut frag_spv_file,
-    )?);
+    let frag_shader = Arc::new(ShaderModule::new_from_spirv(device, &mut frag_spv_file)?);
 
     Ok(create_shader_stages_from_modules(vert_shader, frag_shader))
 }
 
 pub fn create_shader_stages_from_path<'a>(
-    device: &Arc<Device>,
+    device: Arc<Device>,
     vert_shader_file_path: &str,
     frag_shader_file_path: &str,
 ) -> Result<(ShaderStage<'a>, ShaderStage<'a>), ShaderError> {

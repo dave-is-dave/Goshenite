@@ -5,7 +5,7 @@ use super::{
 };
 use crate::engine::object::object::ObjectId;
 use anyhow::Context;
-use ash::{extensions::khr::Synchronization2, vk};
+use ash::{khr::synchronization2, vk};
 use bort_vk::{
     AllocationAccess, Buffer, CommandBuffer, CommandPool, Device, DeviceOwned, Fence, Image,
     ImageAccess, ImageView, MemoryAllocator, Queue, Semaphore,
@@ -49,7 +49,7 @@ impl ElementAtPoint {
 
 pub(super) struct ElementIdReader {
     device: Arc<Device>,
-    synchronization_2_functions: Synchronization2,
+    synchronization_2_functions: synchronization2::Device,
 
     transfer_queue: Arc<Queue>,
     render_queue: Arc<Queue>,
@@ -75,7 +75,7 @@ impl ElementIdReader {
     ) -> anyhow::Result<Self> {
         let device = transfer_queue.device().clone();
         let synchronization_2_functions =
-            Synchronization2::new(&device.instance().inner(), &device.inner());
+            synchronization2::Device::new(&device.instance().inner(), &device.inner());
 
         let command_buffer_transfer = command_pool_transfer_queue
             .allocate_command_buffer(vk::CommandBufferLevel::PRIMARY)
@@ -133,24 +133,28 @@ impl ElementIdReader {
         };
 
         // render queue release
-        let after_render_image_barrier = vk::ImageMemoryBarrier2::builder()
-            .src_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
-            .dst_stage_mask(vk::PipelineStageFlags2::empty())
-            .src_access_mask(vk::AccessFlags2::INPUT_ATTACHMENT_READ)
-            .dst_access_mask(vk::AccessFlags2::empty())
-            .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-            .image(last_primitive_id_buffer.image().handle())
-            .subresource_range(image_subresource_range)
-            .src_queue_family_index(self.render_queue.family_index())
-            .dst_queue_family_index(self.transfer_queue.family_index());
+        let after_render_image_barrier = vk::ImageMemoryBarrier2 {
+            src_stage_mask: vk::PipelineStageFlags2::FRAGMENT_SHADER,
+            dst_stage_mask: vk::PipelineStageFlags2::empty(),
+            src_access_mask: vk::AccessFlags2::INPUT_ATTACHMENT_READ,
+            dst_access_mask: vk::AccessFlags2::empty(),
+            old_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            new_layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            image: last_primitive_id_buffer.image().handle(),
+            subresource_range: image_subresource_range,
+            src_queue_family_index: self.render_queue.family_index(),
+            dst_queue_family_index: self.transfer_queue.family_index(),
+            ..Default::default()
+        };
 
-        let after_render_barriers = [after_render_image_barrier.build()];
+        let after_render_barriers = [after_render_image_barrier];
         let after_render_dependency =
-            vk::DependencyInfo::builder().image_memory_barriers(&after_render_barriers);
+            vk::DependencyInfo::default().image_memory_barriers(&after_render_barriers);
 
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        let begin_info = vk::CommandBufferBeginInfo {
+            flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+            ..Default::default()
+        };
         self.command_buffer_post_render_sync
             .begin(&begin_info)
             .context("beginning command buffer record_and_submit_pre_transfer_sync_commands")?;
@@ -167,7 +171,7 @@ impl ElementIdReader {
             .context("ending command buffer record_and_submit_pre_transfer_sync_commands")?;
 
         let submit_command_buffers = [self.command_buffer_post_render_sync.handle()];
-        let submit_info = vk::SubmitInfo::builder()
+        let submit_info = vk::SubmitInfo::default()
             .command_buffers(&submit_command_buffers)
             .signal_semaphores(&semaphores_before_transfer);
 
@@ -176,7 +180,7 @@ impl ElementIdReader {
                 .inner()
                 .queue_submit(
                     self.render_queue.handle(),
-                    &[submit_info.build()],
+                    &[submit_info],
                     vk::Fence::null(),
                 )
                 .context("submitting commands to sync reading primitive id at a coordinate")?;
@@ -237,22 +241,24 @@ impl ElementIdReader {
                 src_access_mask = vk::AccessFlags2::empty();
             }
 
-            vk::ImageMemoryBarrier2::builder()
-                .src_stage_mask(src_stage_mask)
-                .dst_stage_mask(vk::PipelineStageFlags2::TRANSFER)
-                .src_access_mask(src_access_mask)
-                .dst_access_mask(vk::AccessFlags2::TRANSFER_READ)
-                .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                .image(last_primitive_id_buffer.image().handle())
-                .subresource_range(image_subresource_range)
-                .src_queue_family_index(self.render_queue.family_index())
-                .dst_queue_family_index(self.transfer_queue.family_index())
+            vk::ImageMemoryBarrier2 {
+                src_stage_mask: src_stage_mask,
+                dst_stage_mask: vk::PipelineStageFlags2::TRANSFER,
+                src_access_mask: src_access_mask,
+                dst_access_mask: vk::AccessFlags2::TRANSFER_READ,
+                old_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                new_layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                image: last_primitive_id_buffer.image().handle(),
+                subresource_range: image_subresource_range,
+                src_queue_family_index: self.render_queue.family_index(),
+                dst_queue_family_index: self.transfer_queue.family_index(),
+                ..Default::default()
+            }
         };
 
-        let before_transfer_barriers = [before_transfer_image_barrier.build()];
+        let before_transfer_barriers = [before_transfer_image_barrier];
         let before_transfer_dependency =
-            vk::DependencyInfo::builder().image_memory_barriers(&before_transfer_barriers);
+            vk::DependencyInfo::default().image_memory_barriers(&before_transfer_barriers);
 
         let after_transfer_image_barrier = {
             let mut dst_stage_mask = vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT;
@@ -265,25 +271,29 @@ impl ElementIdReader {
                 dst_access_mask = vk::AccessFlags2::empty();
             }
 
-            vk::ImageMemoryBarrier2::builder()
-                .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
-                .dst_stage_mask(dst_stage_mask)
-                .src_access_mask(vk::AccessFlags2::TRANSFER_READ)
-                .dst_access_mask(dst_access_mask)
-                .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-                .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .image(last_primitive_id_buffer.image().handle())
-                .subresource_range(image_subresource_range)
-                .src_queue_family_index(self.transfer_queue.family_index())
-                .dst_queue_family_index(self.render_queue.family_index())
+            vk::ImageMemoryBarrier2 {
+                src_stage_mask: vk::PipelineStageFlags2::TRANSFER,
+                dst_stage_mask: dst_stage_mask,
+                src_access_mask: vk::AccessFlags2::TRANSFER_READ,
+                dst_access_mask: dst_access_mask,
+                old_layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                new_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                image: last_primitive_id_buffer.image().handle(),
+                subresource_range: image_subresource_range,
+                src_queue_family_index: self.transfer_queue.family_index(),
+                dst_queue_family_index: self.render_queue.family_index(),
+                ..Default::default()
+            }
         };
 
-        let after_transfer_barriers = [after_transfer_image_barrier.build()];
+        let after_transfer_barriers = [after_transfer_image_barrier];
         let after_transfer_dependency =
-            vk::DependencyInfo::builder().image_memory_barriers(&after_transfer_barriers);
+            vk::DependencyInfo::default().image_memory_barriers(&after_transfer_barriers);
 
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        let begin_info = vk::CommandBufferBeginInfo {
+            flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+            ..Default::default()
+        };
         self.command_buffer_transfer
             .begin(&begin_info)
             .context("beginning command buffer get_element_at_screen_coordinate")?;
@@ -328,7 +338,7 @@ impl ElementIdReader {
         let transfer_submit_command_buffers = [self.command_buffer_transfer.handle()];
 
         let mut transfer_submit_info =
-            vk::SubmitInfo::builder().command_buffers(&transfer_submit_command_buffers);
+            vk::SubmitInfo::default().command_buffers(&transfer_submit_command_buffers);
 
         let different_queue_family_indices =
             self.render_queue.family_index() != self.transfer_queue.family_index();
@@ -348,7 +358,7 @@ impl ElementIdReader {
                 .inner()
                 .queue_submit(
                     self.transfer_queue.handle(),
-                    &[transfer_submit_info.build()],
+                    &[transfer_submit_info],
                     self.completion_fence.handle(),
                 )
                 .context("submitting commands to read primitive id at coordinate")?;
@@ -373,24 +383,28 @@ impl ElementIdReader {
         };
 
         // render queue aquire
-        let before_render_image_barrier = vk::ImageMemoryBarrier2::builder()
-            .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
-            .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
-            .src_access_mask(vk::AccessFlags2::TRANSFER_READ)
-            .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
-            .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-            .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .image(last_primitive_id_buffer.image().handle())
-            .subresource_range(image_subresource_range)
-            .src_queue_family_index(self.transfer_queue.family_index())
-            .dst_queue_family_index(self.render_queue.family_index());
+        let before_render_image_barrier = vk::ImageMemoryBarrier2 {
+            src_stage_mask: vk::PipelineStageFlags2::TRANSFER,
+            dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+            src_access_mask: vk::AccessFlags2::TRANSFER_READ,
+            dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+            old_layout: vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            new_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            image: last_primitive_id_buffer.image().handle(),
+            subresource_range: image_subresource_range,
+            src_queue_family_index: self.transfer_queue.family_index(),
+            dst_queue_family_index: self.render_queue.family_index(),
+            ..Default::default()
+        };
 
-        let before_render_barriers = [before_render_image_barrier.build()];
+        let before_render_barriers = [before_render_image_barrier];
         let before_render_dependency =
-            vk::DependencyInfo::builder().image_memory_barriers(&before_render_barriers);
+            vk::DependencyInfo::default().image_memory_barriers(&before_render_barriers);
 
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        let begin_info = vk::CommandBufferBeginInfo {
+            flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+            ..Default::default()
+        };
         self.command_buffer_pre_render_sync
             .begin(&begin_info)
             .context("beginning command buffer record_and_submit_pre_transfer_sync_commands")?;
@@ -407,7 +421,7 @@ impl ElementIdReader {
             .context("ending command buffer record_and_submit_pre_transfer_sync_commands")?;
 
         let submit_command_buffers = [self.command_buffer_pre_render_sync.handle()];
-        let submit_info = vk::SubmitInfo::builder()
+        let submit_info = vk::SubmitInfo::default()
             .command_buffers(&submit_command_buffers)
             .wait_semaphores(&semaphores_after_transfer)
             .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT]);
@@ -417,7 +431,7 @@ impl ElementIdReader {
                 .inner()
                 .queue_submit(
                     self.render_queue.handle(),
-                    &[submit_info.build()],
+                    &[submit_info],
                     vk::Fence::null(),
                 )
                 .context("submitting commands to sync reading primitive id at a coordinate")?;

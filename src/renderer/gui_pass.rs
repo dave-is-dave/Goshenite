@@ -1165,33 +1165,16 @@ fn create_shader_stages<'a>(
 }
 
 #[cfg(not(feature = "include-spirv-bytes"))]
-fn create_shader_stages(device: &Arc<Device>) -> anyhow::Result<(ShaderStage, ShaderStage)> {
+fn create_shader_stages<'a>(
+    device: Arc<Device>,
+) -> anyhow::Result<(ShaderStage<'a>, ShaderStage<'a>)> {
+    use crate::renderer::vulkan_init::create_shader_stages_from_path;
+
     const VERT_SHADER_PATH: &str = "assets/shader_binaries/gui.vert.spv";
     const FRAG_SHADER_PATH: &str = "assets/shader_binaries/gui.frag.spv";
 
-    let vert_shader = Arc::new(
-        ShaderModule::new_from_file(device.clone(), VERT_SHADER_PATH)
-            .context("creating lighting pass vertex shader")?,
-    );
-    let vert_stage = ShaderStage::new(
-        vk::ShaderStageFlags::VERTEX,
-        vert_shader,
-        CString::new(SHADER_ENTRY_POINT).context("converting shader entry point to c-string")?,
-        None,
-    );
-
-    let frag_shader = Arc::new(
-        ShaderModule::new_from_file(device.clone(), FRAG_SHADER_PATH)
-            .context("creating lighting pass fragment shader")?,
-    );
-    let frag_stage = ShaderStage::new(
-        vk::ShaderStageFlags::FRAGMENT,
-        frag_shader,
-        CString::new(SHADER_ENTRY_POINT).context("converting shader entry point to c-string")?,
-        None,
-    );
-
-    Ok((vert_stage, frag_stage))
+    create_shader_stages_from_path(device, VERT_SHADER_PATH, FRAG_SHADER_PATH)
+        .context("creating geometry pass shaders")
 }
 
 /// Caclulates the region of the framebuffer to render a gui element
