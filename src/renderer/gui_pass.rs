@@ -21,7 +21,6 @@ use bort_vk::{
     MemoryPoolPropeties, PipelineAccess, PipelineLayout, PipelineLayoutProperties, Queue,
     RenderPass, Sampler, SamplerProperties, Semaphore, ShaderModule, ShaderStage, ViewportState,
 };
-use bort_vma::Alloc;
 use egui::{
     epaint::Primitive, ClippedPrimitive, Mesh, Rect, TextureFilter, TextureId, TextureOptions,
     TexturesDelta,
@@ -1032,9 +1031,7 @@ fn create_buffer_pool(memory_allocator: Arc<MemoryAllocator>) -> anyhow::Result<
     };
 
     let memory_type_index = unsafe {
-        memory_allocator
-            .inner()
-            .find_memory_type_index_for_buffer_info(&buffer_info, &buffer_alloc_info)
+        memory_allocator.find_memory_type_index_for_buffer_info(&buffer_info, &buffer_alloc_info)
     }
     .context("finding memory type index for gui pass buffer pool")?;
 
