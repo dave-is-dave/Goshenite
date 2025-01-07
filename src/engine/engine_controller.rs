@@ -32,7 +32,7 @@ use glam::Vec3;
 use log::{debug, error, info, trace, warn};
 use std::{collections::VecDeque, env, fmt::Debug, sync::Arc};
 use winit::{
-    event::{ElementState, Event, KeyEvent, WindowEvent},
+    event::{ElementState, KeyEvent, WindowEvent},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
@@ -165,17 +165,10 @@ impl EngineController {
         let events = self.main_thread_channels.get_events()?;
 
         for event in events {
-            match event {
-                // process window events and update state
-                Event::WindowEvent { event, .. } => {
-                    let process_input_res = self.process_window_event(event);
+            let process_input_res = self.process_window_event(event);
 
-                    if let Err(e) = process_input_res {
-                        error!("error while processing input: {}", e);
-                    }
-                }
-
-                _ => (),
+            if let Err(e) = process_input_res {
+                error!("error while processing input: {}", e);
             }
         }
 

@@ -135,10 +135,10 @@ impl RenderManager {
             transfer_queue_family_index,
         )?;
 
-        let memory_allocator = Arc::new(MemoryAllocator::new(device.clone())?);
-
         let command_pool_render = create_command_pool(device.clone(), &render_queue)?;
         let command_pool_transfer = create_command_pool(device.clone(), &transfer_queue)?;
+
+        let memory_allocator = Arc::new(MemoryAllocator::new(device.clone())?);
 
         let swapchain = create_swapchain(device.clone(), surface.clone(), &window)?;
         let shaders_write_linear_color =

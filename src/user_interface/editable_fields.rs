@@ -29,7 +29,7 @@ pub fn op_drop_down(
 ) -> Option<Operation> {
     let mut new_op = original_op.clone();
 
-    ComboBox::from_id_source(format!("op drop down {:?}", object_id))
+    ComboBox::from_id_salt(format!("op drop down {:?}", object_id))
         .width(0_f32)
         .selected_text(original_op.name())
         .show_ui(ui, |ui_op| {
@@ -99,7 +99,7 @@ pub fn color_specular_editor_ui(
 
     ui.horizontal(|ui_h| {
         ui_h.label("Specular:");
-        ui_h.add(DragValue::new(specular).speed(DRAG_INC).clamp_range(0..=1));
+        ui_h.add(DragValue::new(specular).speed(DRAG_INC).range(0..=1));
     });
 
     if original_color != *color || original_specular != *specular {
@@ -237,7 +237,7 @@ pub fn editable_radius_ui(ui: &mut egui::Ui, original_radius: f32) -> Option<f32
         ui.add(
             DragValue::new(&mut new_radius)
                 .speed(DRAG_INC)
-                .clamp_range(0..=config::MAX_SPHERE_RADIUS),
+                .range(0..=config::MAX_SPHERE_RADIUS),
         );
     });
 

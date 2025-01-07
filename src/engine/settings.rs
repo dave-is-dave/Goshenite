@@ -1,6 +1,5 @@
 use crate::user_interface::{
-    camera_control::CameraControlMappings, config_ui::DEFAULT_SCROLL_ZOOM_SENSITIVITY, gui::Gui,
-    theme::Theme,
+    camera_control::CameraControlMappings, config_ui::DEFAULT_SCROLL_ZOOM_SENSITIVITY, theme::Theme,
 };
 
 // ~~ Json Setting Names ~~
@@ -41,9 +40,10 @@ impl Settings {
         *self = Self::default()
     }
 
-    pub fn set_theme(&mut self, theme: Theme, gui: &mut Gui) {
+    pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
-        gui.set_theme(theme)
+        // todo does egui update automatically from winit::event?
+        // may add color schemes in future -> egui::set_visuals_of
     }
 
     pub fn reset_scroll_zoom_sensitivity(&mut self) {

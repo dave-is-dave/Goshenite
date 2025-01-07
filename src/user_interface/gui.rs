@@ -1,11 +1,7 @@
-use std::sync::Arc;
-
 use self::command_palette::GuiStateCommandPalette;
-
 use super::{
     camera::Camera,
     gui_state::{GuiState, SubWindowStates},
-    theme::Theme,
 };
 use crate::{
     engine::{
@@ -18,10 +14,11 @@ use crate::{
     },
     renderer::config_renderer::RenderOptions,
 };
-use egui::{TexturesDelta, Visuals};
+use egui::{TextWrapMode, TexturesDelta};
 use egui_winit::EventResponse;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
+use std::sync::Arc;
 use winit::window::Window;
 
 // various gui sections
@@ -68,7 +65,7 @@ impl Gui {
         let egui_context = egui::Context::default();
         egui_context.set_style(egui::Style {
             // disable sentance wrap by default (horizontal scroll instead)
-            wrap: Some(false),
+            wrap_mode: Some(TextWrapMode::Extend),
             ..Default::default()
         });
 
@@ -78,6 +75,7 @@ impl Gui {
             egui::ViewportId::ROOT,
             &window,
             Some(scale_factor),
+            None,
             None,
         );
 
@@ -101,7 +99,8 @@ impl Gui {
     ///
     /// Note that egui uses `tab` to move focus between elements, so this will always return `true` for tabs.
     pub fn process_event(&mut self, event: &winit::event::WindowEvent) -> EventResponse {
-        self.winit_state.on_window_event(&self.window, event)
+        self.winit_state
+            .on_window_event(self.window.as_ref(), event)
     }
 
     /// Get a reference to the clipped meshes required for rendering
@@ -141,7 +140,7 @@ impl Gui {
 
         // begin frame
         let raw_input = self.winit_state.take_egui_input(window);
-        self.egui_context.begin_frame(raw_input);
+        self.egui_context.begin_pass(raw_input);
 
         // draw
 
@@ -188,7 +187,7 @@ impl Gui {
             shapes,
             pixels_per_point,
             viewport_output: _,
-        } = self.egui_context.end_frame();
+        } = self.egui_context.end_pass();
         self.winit_state
             .handle_platform_output(&self.window, platform_output);
 
@@ -213,22 +212,6 @@ impl Gui {
     /// Returns texture update info accumulated since the last call to this function.
     pub fn get_and_clear_textures_delta(&mut self) -> Vec<TexturesDelta> {
         std::mem::take(&mut self.textures_delta_accumulation)
-    }
-
-    pub fn set_theme(&self, theme: Theme) {
-        self.set_theme_egui(theme.as_egui_visuals())
-    }
-
-    pub fn set_theme_winit(&self, theme: winit::window::Theme) {
-        let visuals = match theme {
-            winit::window::Theme::Dark => Visuals::dark(),
-            winit::window::Theme::Light => Visuals::light(),
-        };
-        self.set_theme_egui(visuals);
-    }
-
-    pub fn set_theme_egui(&self, theme: egui::Visuals) {
-        self.egui_context.set_visuals(theme);
     }
 
     pub fn set_command_palette_visability(&mut self, is_open: bool) {
