@@ -30,7 +30,7 @@ raw-window-handle = "0.6"
 ash = "0.38"
 # bort has a bunch of helper structs and functions wrapped around ash
 #bort-vk = { version = "0.2.7", default-features = false, features = ["raw-window-handle-06", "bytemuck"] }
-bort-vk = { path = "../bort/bort-vk", default-features = false, features = ["raw-window-handle-06", "bytemuck"] }
+bort-vk = { path = "../bort/bort-vk", features = ["raw-window-handle-06", "bytemuck"] }
 # AMD vulkan memory allocator bindings
 #bort-vma = { version = "0.3", features = ["vulkan-1-2"] }
 bort-vma = { path = "../bort/bort-vma", features = ["vulkan-1-2"] }

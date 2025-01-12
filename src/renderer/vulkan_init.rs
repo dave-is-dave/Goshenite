@@ -1,8 +1,8 @@
 use super::{
     config_renderer::{
-        CPU_ACCESS_BUFFER_SIZE, FORMAT_ALBEDO_BUFFER, FORMAT_NORMAL_BUFFER,
-        FORMAT_PRIMITIVE_ID_BUFFER, MAX_FRAMES_IN_FLIGHT, MAX_VULKAN_VER, MIN_VULKAN_VER,
-        SHADER_ENTRY_POINT,
+        supports_required_features_1_0, CPU_ACCESS_BUFFER_SIZE, FORMAT_ALBEDO_BUFFER,
+        FORMAT_NORMAL_BUFFER, FORMAT_PRIMITIVE_ID_BUFFER, MAX_FRAMES_IN_FLIGHT, MAX_VULKAN_VER,
+        MIN_VULKAN_VER, SHADER_ENTRY_POINT,
     },
     debug_callback::log_vulkan_debug_callback,
     shader_interfaces::{
@@ -10,12 +10,13 @@ use super::{
     },
 };
 use crate::renderer::config_renderer::{
-    DISPLAY_UNAVAILABLE_TIMEOUT_NANOSECONDS, ENABLE_VULKAN_VALIDATION,
+    required_device_extensions, required_features_1_0, DISPLAY_UNAVAILABLE_TIMEOUT_NANOSECONDS,
+    ENABLE_VULKAN_VALIDATION,
 };
 use anyhow::{anyhow, Context};
 use ash::{
     prelude::VkResult,
-    vk::{self, EXT_DEBUG_UTILS_NAME, KHR_SWAPCHAIN_NAME, KHR_SYNCHRONIZATION2_NAME},
+    vk::{self, EXT_DEBUG_UTILS_NAME},
 };
 use bort_vk::{
     allocation_info_cpu_accessible, choose_composite_alpha, is_format_srgb, Buffer,
@@ -52,26 +53,6 @@ pub fn create_entry() -> anyhow::Result<Arc<ash::Entry>> {
 pub fn create_entry() -> anyhow::Result<Arc<ash::Entry>> {
     let entry = ash_molten::load();
     Ok(Arc::new(entry))
-}
-
-pub fn required_device_extensions() -> [CString; 2] {
-    // VK_KHR_swapchain, VK_KHR_synchronization2
-    [
-        KHR_SWAPCHAIN_NAME.to_owned(),
-        KHR_SYNCHRONIZATION2_NAME.to_owned(),
-    ]
-}
-
-/// Make sure to update `required_features_1_2` too!
-pub fn supports_required_features_1_0(supported_features: vk::PhysicalDeviceFeatures) -> bool {
-    supported_features.fill_mode_non_solid != vk::FALSE
-}
-/// Make sure to update `supports_required_features_1_2` too!
-pub fn required_features_1_0() -> vk::PhysicalDeviceFeatures {
-    vk::PhysicalDeviceFeatures {
-        fill_mode_non_solid: vk::TRUE,
-        ..Default::default()
-    }
 }
 
 pub fn get_display_handle(window: &Window) -> anyhow::Result<DisplayHandle> {
