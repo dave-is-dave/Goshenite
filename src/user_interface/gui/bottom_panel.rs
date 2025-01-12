@@ -15,7 +15,7 @@ fn bottom_panel_layout(ui: &mut Ui, window_states: &mut SubWindowStates) {
         ui.visuals_mut().button_frame = false; // idk what this does tbh
 
         // light/dark theme toggle
-        egui::widgets::global_dark_light_mode_switch(ui);
+        egui::widgets::global_theme_preference_switch(ui);
 
         ui.separator();
 

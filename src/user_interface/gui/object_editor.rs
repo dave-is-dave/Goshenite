@@ -345,7 +345,7 @@ fn primitive_type_drop_down(
     let selected_primitive_type_name: &str = gui_state.primitive_edit.type_name();
     let mut type_has_changed = EditState::NoChange;
 
-    ComboBox::from_id_source(format!("primitive type drop down {:?}", selected_object_id))
+    ComboBox::from_id_salt(format!("primitive type drop down {:?}", selected_object_id))
         .width(0_f32)
         .selected_text(selected_primitive_type_name)
         .show_ui(ui, |ui_p| {

@@ -189,7 +189,7 @@ SdfResult map(vec3 pos)
 }
 
 // https://iquilezles.org/articles/normalsSDF
-vec3 calcNormal(vec3 pos)
+vec3 calc_normal(vec3 pos)
 {
 	const vec2 e = NORMAL_OFFSET;
 	return normalize(e.xyy * map(pos + e.xyy).d +
@@ -223,7 +223,7 @@ RayMarchHit ray_march(const vec3 ray_o, const vec3 ray_d)
 
 		// ray hit
 		if (closest_primitive.d < MIN_MARCH_STEP) {
-			vec3 normal = calcNormal(current_pos);
+			vec3 normal = calc_normal(current_pos);
 			uint object_op_id = (closest_primitive.op_index & 0xFFFF) | (in_object_id << 16);
 			return RayMarchHit (
 				dist,

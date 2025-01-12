@@ -11,6 +11,6 @@ const vec2 uv[3] = vec2[](
 
 void main() 
 {
-    out_uv = uv[gl_VertexIndex];
+	out_uv = uv[gl_VertexIndex];
 	gl_Position = vec4(uv[gl_VertexIndex], 0., 1.);
 }

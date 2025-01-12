@@ -2,17 +2,20 @@ use crate::config;
 use anyhow::Context;
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
+use single_value_channel::Updater;
 use std::{
+    mem::ManuallyDrop,
     sync::{
-        mpsc::{self, TryRecvError},
+        mpsc::{self, Sender, TryRecvError},
         Arc,
     },
-    thread,
+    thread::{self, JoinHandle},
 };
 use winit::{
-    event::{Event, WindowEvent},
-    event_loop::EventLoop,
-    window::{Window, WindowBuilder},
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::{Window, WindowAttributes, WindowId},
 };
 
 use super::engine_controller::{EngineCommand, EngineController};
@@ -24,7 +27,7 @@ pub fn start_main_thread() -> anyhow::Result<()> {
     let primary_window_id = window.id();
 
     let (engine_command_rx, engine_command_tx) = single_value_channel::channel::<EngineCommand>();
-    let (window_event_tx, window_event_rx) = mpsc::channel::<Event<()>>();
+    let (window_event_tx, window_event_rx) = mpsc::channel::<WindowEvent>();
 
     let main_thread_channels = MainThreadChannels {
         engine_command_rx,
@@ -32,41 +35,74 @@ pub fn start_main_thread() -> anyhow::Result<()> {
     };
 
     let _ = engine_command_tx.update(Some(EngineCommand::Run));
-    let engine_thread_handle = thread::spawn(move || {
+    let engine_thread_handle = thread::spawn(|| {
+        info!("initializing engine instance");
         let mut engine_controller = EngineController::new(window, main_thread_channels)?;
 
+        info!("starting engine loop");
         engine_controller.run()?;
 
         Ok::<(), anyhow::Error>(())
     });
 
-    event_loop
-        .run(move |event, event_loop_window_target| {
-            // check for primary window close request
-            if let Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                window_id,
-            } = event
-            {
-                if window_id == primary_window_id {
-                    let _ = engine_command_tx.update(Some(EngineCommand::Quit));
-                    info!("close requested by window. stopping main thread...");
-                    event_loop_window_target.exit();
-                    return;
-                }
-            }
+    let mut main_thread = MainThread {
+        primary_window_id,
+        engine_thread_handle: ManuallyDrop::new(engine_thread_handle),
+        engine_command_tx,
+        window_event_tx,
+    };
 
-            // send os event to engine thread
-            let send_res = window_event_tx.send(event.clone());
+    event_loop.run_app(&mut main_thread)?;
 
-            // handle premature engine closure
-            if let Err(_e) = send_res {
-                info!("engine thread disconnected. stopping main thread...");
-                event_loop_window_target.exit();
-            }
-        })
-        .context("OS event loop")?;
+    Ok(())
+}
 
+pub struct MainThread {
+    primary_window_id: WindowId,
+    engine_thread_handle: ManuallyDrop<JoinHandle<Result<(), anyhow::Error>>>,
+    engine_command_tx: Updater<Option<EngineCommand>>,
+    window_event_tx: Sender<WindowEvent>,
+}
+
+impl ApplicationHandler for MainThread {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        if event == WindowEvent::CloseRequested && window_id == self.primary_window_id {
+            let _ = self.engine_command_tx.update(Some(EngineCommand::Quit));
+            info!("close requested by window. stopping main thread...");
+            event_loop.exit();
+
+            return;
+        }
+
+        // send os event to engine thread
+        let send_res = self.window_event_tx.send(event.clone());
+
+        // handle premature engine closure
+        if let Err(_e) = send_res {
+            info!("engine thread disconnected. stopping main thread...");
+            event_loop.exit();
+        }
+    }
+
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        // Safety: winit guarentees event loop shutdown after returning so this should be
+        // functionally the same as Drop
+        let engine_thread_handle =
+            unsafe { ManuallyDrop::<_>::take(&mut self.engine_thread_handle) };
+        wait_for_engine_thread_closure(engine_thread_handle);
+    }
+}
+
+fn wait_for_engine_thread_closure(
+    engine_thread_handle: thread::JoinHandle<Result<(), anyhow::Error>>,
+) {
     // check reason for engine thread closure
     let engine_thread_join_res = engine_thread_handle.join();
     if let Err(engine_panic_param) = &engine_thread_join_res {
@@ -82,31 +118,27 @@ pub fn start_main_thread() -> anyhow::Result<()> {
             ),
         }
     }
-
-    Ok(())
 }
 
 fn create_window(event_loop: &EventLoop<()>) -> anyhow::Result<Arc<Window>> {
     info!("creating main window...");
-    let window_builder = WindowBuilder::new().with_title(config::ENGINE_NAME);
-    let window = Arc::new(
-        window_builder
-            .build(event_loop)
-            .context("instanciating initial os window")?,
-    );
-    Ok(window)
+    let window_attributes = WindowAttributes::default().with_title(config::ENGINE_NAME);
+    let window = event_loop
+        .create_window(window_attributes)
+        .context("instanciating initial os window")?;
+    Ok(Arc::new(window))
 }
 
 pub struct MainThreadChannels {
     /// FIFO queue
     pub engine_command_rx: single_value_channel::Receiver<Option<EngineCommand>>,
-    pub window_event_rx: mpsc::Receiver<Event<()>>,
+    pub window_event_rx: mpsc::Receiver<WindowEvent>,
 }
 
 impl MainThreadChannels {
     /// Ordered by time received, i.e. first event in index 0
-    pub fn get_events(&self) -> anyhow::Result<Vec<Event<()>>> {
-        let mut events = Vec::<Event<()>>::new();
+    pub fn get_events(&self) -> anyhow::Result<Vec<WindowEvent>> {
+        let mut events = Vec::<WindowEvent>::new();
         loop {
             let recv_res = self.window_event_rx.try_recv();
             match recv_res {
